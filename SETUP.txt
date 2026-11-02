@@ -1,0 +1,12 @@
+ADMIN PAGE SETUP (one time, ~3 minutes)
+
+1. Cloudflare dashboard > Storage & Databases > D1 > Create database (any name, e.g. look1).
+2. Workers & Pages > your Look 1 project > Settings > Bindings > Add > D1 database
+   Variable name: DB   (exactly)   Database: the one you just created.
+3. Same page > Variables and secrets > Add:
+   Secret ADMIN_PASSWORD = your password   |   Variable ADMIN_USER = Teacher (optional, "Teacher" is the default)
+4. Upload this zip as a new deployment (Deployments > Create deployment).
+5. Open https://YOUR-SITE/admin and sign in.
+
+Learners appear after a device opens the app while online (it syncs in the background; offline use still works).
+Delete SETUP.txt from the zip before uploading if you prefer; it is not needed by the site.

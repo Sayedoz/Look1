@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Look 1 – Admin</title>
+<style>
+:root{--bg:#f6f7fb;--card:#fff;--ink:#1d2433;--mute:#667085;--line:#e4e7ee;--brand:#1565C0}
+@media(prefers-color-scheme:dark){:root{--bg:#10141c;--card:#1a2030;--ink:#e8ecf4;--mute:#97a0b3;--line:#2a3247;--brand:#6aa7ff}}
+*{box-sizing:border-box}[hidden]{display:none!important}body{margin:0;font:15px/1.45 system-ui,sans-serif;background:var(--bg);color:var(--ink)}
+header{display:flex;gap:12px;align-items:center;justify-content:space-between;padding:14px 20px;background:var(--card);border-bottom:1px solid var(--line);flex-wrap:wrap}
+h1{font-size:18px;margin:0}main{max-width:1100px;margin:0 auto;padding:20px}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:16px}
+.stat{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 14px}.stat b{display:block;font-size:24px}.stat span{color:var(--mute);font-size:13px}
+.bar{display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap}
+input,button{font:inherit;padding:8px 12px;border-radius:8px;border:1px solid var(--line);background:var(--card);color:var(--ink)}
+input{flex:1;min-width:180px}button{cursor:pointer}button.p{background:var(--brand);border-color:var(--brand);color:#fff}button.d{color:#c62828}
+.wrap{background:var(--card);border:1px solid var(--line);border-radius:10px;overflow-x:auto}
+table{width:100%;border-collapse:collapse}th,td{padding:10px 12px;text-align:start;border-bottom:1px solid var(--line);white-space:nowrap}
+th{color:var(--mute);font-size:12px;text-transform:uppercase;cursor:pointer}tr.r{cursor:pointer}tr.r:hover{background:var(--bg)}
+.det{white-space:normal;background:var(--bg)}.det h3{margin:6px 0;font-size:14px}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px}
+.det table td,.det table th{padding:4px 8px;font-size:13px}.mute{color:var(--mute)}.av{font-size:20px;margin-inline-end:6px}
+#login{max-width:340px;margin:12vh auto;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:24px;display:grid;gap:12px}
+#err{color:#c62828;min-height:1.2em;font-size:13px}
+</style>
+</head>
+<body>
+<div id="login" hidden>
+  <h1>Look 1 – Admin</h1>
+  <input id="us" placeholder="Username" autocomplete="username" value="Teacher">
+  <input id="pw" type="password" placeholder="Admin password" autocomplete="current-password">
+  <div id="err"></div>
+  <button class="p" id="go">Sign in</button>
+</div>
+<div id="app" hidden>
+  <header><h1>Look 1 – Learner activity</h1>
+    <div class="bar" style="margin:0"><button id="ref">Refresh</button><button id="csv">Export CSV</button><button id="out">Sign out</button></div>
+  </header>
+  <main>
+    <div class="stats" id="stats"></div>
+    <div class="bar"><input id="q" placeholder="Search by name…"></div>
+    <div class="wrap"><table><thead><tr>
+      <th data-k="name">Learner</th><th data-k="stars">Stars</th><th data-k="done">Activities done</th><th data-k="acc">Accuracy</th><th data-k="last_sync">Last synced</th><th data-k="first_seen">First seen</th>
+    </tr></thead><tbody id="rows"></tbody></table></div>
+    <p class="mute" id="empty" hidden>No learners yet. Data appears here after a device opens the app while online.</p>
+  </main>
+</div>
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fmt = t => t ? new Date(t).toLocaleString([], {dateStyle:'medium', timeStyle:'short'}) : '–';
+let T = sessionStorage.getItem('t') || '', U = sessionStorage.getItem('u') || '', rows = [], sort = {k:'last_sync', d:-1}, open = null;
+const api = (p, o = {}) => fetch(p, {...o, headers:{authorization:'Bearer ' + T, 'x-admin-user':U}});
+const acc = r => (r.correct + r.wrong) ? Math.round(100 * r.correct / (r.correct + r.wrong)) : null;
+
+function show(login){ $('#login').hidden = !login; $('#app').hidden = login; if (login) $('#pw').focus(); }
+async function load(){
+  try{
+    const r = await api('/api/admin/learners');
+    if (r.status === 401){ sessionStorage.removeItem('t'); show(true); return false; }
+    if (!r.ok) throw new Error((await r.json()).error || r.status);
+    rows = (await r.json()).learners; show(false); render(); return true;
+  }catch(e){ $('#err').textContent = 'Error: ' + e.message; show(true); return false; }
+}
+$('#go').onclick = async () => {
+  T = $('#pw').value; U = $('#us').value.trim(); $('#err').textContent = '';
+  if (await load()) { sessionStorage.setItem('t', T); sessionStorage.setItem('u', U); $('#pw').value = ''; } else if (!$('#err').textContent) $('#err').textContent = 'Wrong username or password';
+};
+$('#pw').addEventListener('keydown', e => { if (e.key === 'Enter') $('#go').click(); });
+$('#ref').onclick = load;
+$('#out').onclick = () => { sessionStorage.removeItem('t'); T = ''; show(true); };
+$('#q').oninput = render;
+document.querySelectorAll('th').forEach(th => th.onclick = () => { const k = th.dataset.k; sort = {k, d: sort.k === k ? -sort.d : -1}; render(); });
+
+function render(){
+  const week = Date.now() - 7 * 864e5;
+  const tot = rows.reduce((s, r) => s + r.stars, 0);
+  $('#stats').innerHTML = [['Learners', rows.length], ['Active last 7 days', rows.filter(r => r.last_sync > week).length], ['Total stars', tot], ['Activities completed', rows.reduce((s, r) => s + r.done, 0)]]
+    .map(([l, v]) => `<div class="stat"><b>${v}</b><span>${l}</span></div>`).join('');
+  const q = $('#q').value.trim().toLowerCase();
+  const list = rows.filter(r => !q || r.name.toLowerCase().includes(q))
+    .sort((a, b) => { const x = sort.k === 'acc' ? (acc(a) ?? -1) : a[sort.k], y = sort.k === 'acc' ? (acc(b) ?? -1) : b[sort.k]; return (x > y ? 1 : x < y ? -1 : 0) * sort.d; });
+  $('#empty').hidden = list.length > 0;
+  $('#rows').innerHTML = list.map(r => {
+    const a = acc(r);
+    return `<tr class="r" data-id="${esc(r.id)}"><td><span class="av">${esc(r.avatar)}</span>${esc(r.name) || '<i class="mute">unnamed</i>'}</td><td>⭐ ${r.stars}</td><td>${r.done}</td><td>${a === null ? '–' : a + '%'}</td><td>${fmt(r.last_sync)}</td><td>${fmt(r.first_seen)}</td></tr>` +
+      (open === r.id ? `<tr><td class="det" colspan="6">${detail(r)}</td></tr>` : '');
+  }).join('');
+  document.querySelectorAll('tr.r').forEach(tr => tr.onclick = () => { open = open === tr.dataset.id ? null : tr.dataset.id; render(); });
+  document.querySelectorAll('[data-del]').forEach(b => b.onclick = async e => {
+    e.stopPropagation();
+    if (!confirm('Delete this learner’s data from the server? (Their device keeps its own copy, but it will not be synced again.)')) return;
+    await api('/api/admin/learners/' + encodeURIComponent(b.dataset.del), {method:'DELETE'}); open = null; load();
+  });
+}
+function detail(r){
+  const prog = [...r.progress].sort((a, b) => (a[0] + a[1] + a[2]).localeCompare(b[0] + b[1] + b[2]));
+  const hard = r.items.filter(i => i[3] > 0).sort((a, b) => b[3] - a[3]).slice(0, 10);
+  return `<div class="grid"><div><h3>Progress by activity</h3><table><tr><th>Unit</th><th>Section</th><th>Activity</th><th>Stars</th><th>Tries</th></tr>` +
+    (prog.map(p => `<tr><td>${esc(p[0])}</td><td>${esc(p[1])}</td><td>${esc(p[2])}</td><td>${'⭐'.repeat(p[3]) || '–'}</td><td>${p[4]}</td></tr>`).join('') || '<tr><td colspan="5" class="mute">Nothing completed yet</td></tr>') +
+    `</table></div><div><h3>Most-missed items</h3><table><tr><th>Item</th><th>Wrong</th><th>Right</th></tr>` +
+    (hard.map(i => `<tr><td>${esc(i[0])}</td><td>${i[3]}</td><td>${i[2]}</td></tr>`).join('') || '<tr><td colspan="3" class="mute">None</td></tr>') +
+    `</table><p><button class="d" data-del="${esc(r.id)}">Delete learner data</button></p></div></div>`;
+}
+$('#csv').onclick = () => {
+  const q = v => '"' + String(v ?? '').replace(/"/g, '""') + '"';
+  const out = [['name', 'stars', 'activities_done', 'correct', 'wrong', 'accuracy_pct', 'first_seen', 'last_synced'].join(',')]
+    .concat(rows.map(r => [r.name, r.stars, r.done, r.correct, r.wrong, acc(r) ?? '', fmt(r.first_seen), fmt(r.last_sync)].map(q).join(',')));
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob(['\ufeff' + out.join('\n')], {type:'text/csv'}));
+  a.download = 'look1-learners.csv'; a.click();
+};
+T ? load() : show(true);
+</script>
+</body>
+</html>
