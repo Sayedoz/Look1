@@ -74,19 +74,19 @@
 
   // Word -> sounds (grapheme, spoken sound). Respelled so browser voices say sounds, not letter names.
   const SOUNDS = {
-    bag: [['b','buh'],['a','ah'],['g','guh']],
-    book: [['b','buh'],['oo','oo'],['k','kuh']],
-    crayon: [['c','kuh'],['r','ruh'],['ay','ay'],['on','on']],
-    pen: [['p','puh'],['e','eh'],['n','nuh']],
-    pencil: [['p','puh'],['e','eh'],['n','nuh'],['c','suh'],['i','ih'],['l','luh']],
-    case: [['c','kuh'],['a','ay'],['se','suh']],
-    rubber: [['r','ruh'],['u','uh'],['bb','buh'],['er','er']],
-    ruler: [['r','ruh'],['u','oo'],['l','luh'],['er','er']],
-    teacher: [['t','tuh'],['ea','ee'],['ch','chuh'],['er','er']],
-    poster: [['p','puh'],['o','oh'],['s','suh'],['t','tuh'],['er','er']],
-    board: [['b','buh'],['oar','or'],['d','duh']],
-    chair: [['ch','chuh'],['air','air']],
-    desk: [['d','duh'],['e','eh'],['s','suh'],['k','kuh']],
+    bag: [['b','Baah'],['a','Ah'],['g','Guh']],
+    book: [['b','Baah'],['oo','Oo'],['k','Kuh']],
+    crayon: [['c','Kuh'],['r','Ruh'],['ay','Ay'],['on','On']],
+    pen: [['p','Pah'],['e','Eh'],['n','Nuh']],
+    pencil: [['p','Pah'],['e','Eh'],['n','Nuh'],['c','Suh'],['i','Ih'],['l','Luh']],
+    case: [['c','Kuh'],['a','Ay'],['se','Suh']],
+    rubber: [['r','Ruh'],['u','Uh'],['bb','Baah'],['er','Er']],
+    ruler: [['r','Ruh'],['u','Oo'],['l','Luh'],['er','Er']],
+    teacher: [['t','Tuh'],['ea','Eee'],['ch','Chuh'],['er','Er']],
+    poster: [['p','Pah'],['o','Oh'],['s','Suh'],['t','Tuh'],['er','Er']],
+    board: [['b','Baah'],['oar','Or'],['d','Duh']],
+    chair: [['ch','Chuh'],['air','Air']],
+    desk: [['d','Duh'],['e','Eh'],['s','Suh'],['k','Kuh']],
   };
   V.map = word => {
     const w = String(word || '').toLowerCase(), out = []; let pos = 0;
@@ -160,7 +160,7 @@
             onstart: () => { if (id === activeSoundOutId && h) h(999); },
             onend: () => { if (id === activeSoundOutId && h) h(-1); }
           });
-        }, 120);
+        }, 200);
         return;
       }
 
@@ -168,23 +168,22 @@
       const step = idx;
       idx++;
 
+      if (h) h(step);
+
       let stepDone = false;
-      const next = () => {
+      const advance = () => {
         if (stepDone || id !== activeSoundOutId) return;
         stepDone = true;
-        setTimeout(playNext, 70);
+        setTimeout(playNext, 180);
       };
 
       speak(item.s, {
-        rate: 0.95,
-        pitch: 1.08,
-        onstart: () => {
-          if (id === activeSoundOutId && h) h(step);
-        },
-        onend: next
+        rate: 0.88,
+        pitch: 1.05,
+        onend: advance
       });
 
-      setTimeout(next, Math.max(500, item.s.length * 150));
+      setTimeout(advance, 2500);
     };
 
     playNext();
