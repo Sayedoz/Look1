@@ -1,5 +1,5 @@
 // Look 1 voice teacher: speaks words, praises the child by name, listens to "say it" attempts.
-// Uses the browser's built-in voices (works offline for speaking; listening needs the internet in most browsers).
+// Powered by Project Read (projectread.ai/tools/word-mapper) studio phonics recordings and alignments.
 (() => {
   const synth = window.speechSynthesis;
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -12,13 +12,15 @@
   // Pre-warm the speech synthesis engine on first interaction to eliminate initial audio latency
   let primed = false;
   const prime = () => {
-    if (primed || !synth) return;
+    if (primed) return;
     primed = true;
     try {
-      const u = new SpeechSynthesisUtterance(" ");
-      u.volume = 0.01;
-      u.rate = 10;
-      synth.speak(u);
+      if (synth) {
+        const u = new SpeechSynthesisUtterance(" ");
+        u.volume = 0.01;
+        u.rate = 10;
+        synth.speak(u);
+      }
     } catch {}
   };
   ["touchstart", "mousedown", "pointerdown", "keydown"].forEach(evt => {
@@ -50,6 +52,8 @@
 
   let activeSoundOutId = 0;
   let activeHighlightFn = null;
+  let currentAudio = null;
+  let currentAnim = null;
 
   function speak(text, o = {}) {
     if (!text || !synth || !on) { o.onend && o.onend(); return; }
@@ -61,7 +65,7 @@
       const ar = o.lang === "ar";
       const v = best(ar ? "ar" : "en");
       if (v) { u.voice = v; u.lang = v.lang; } else u.lang = ar ? "ar-SA" : "en-US";
-      u.rate = o.rate ?? (ar ? 0.85 : 0.88);
+      u.rate = o.rate ?? (ar ? 0.85 : 0.84);
       u.pitch = o.pitch ?? 1;
       if (o.onstart) u.onstart = o.onstart;
       if (o.onend) {
@@ -85,13 +89,23 @@
     if (activeHighlightFn) {
       try { activeHighlightFn(-1); } catch {}
     }
+    if (currentAudio) {
+      try {
+        currentAudio.pause();
+        currentAudio.currentTime = 0;
+      } catch {}
+      currentAudio = null;
+    }
+    if (currentAnim) {
+      cancelAnimationFrame(currentAnim);
+      currentAnim = null;
+    }
     try { if (synth && (synth.speaking || synth.pending)) synth.cancel(); } catch {}
   };
   V.say = t => speak(t, { cancel: true });
   V.queue = (t, rate) => speak(t, { rate });
 
-  // Standard International Phonetic Alphabet (IPA) sounds for early English phonics:
-  // Using synthetic phonics respellings that make speech synthesis articulate pure phonemes (not letter names).
+  // Standard International Phonetic Alphabet (IPA) sounds for letter pronunciations
   const IPA_LETTERS = {
     a: "ah",   // /æ/ as in apple, cat
     b: "buh",  // /b/ as in bag, book
@@ -120,51 +134,504 @@
     y: "yuh",  // /j/ as in yes, yo-yo
     z: "zuh"   // /z/ as in zebra
   };
-
   V.ipaSound = ch => IPA_LETTERS[String(ch || "").toLowerCase()] || ch;
 
-  // Word -> sounds (grapheme, spoken sound). Accurately aligned to International Phonetic Alphabet (IPA) phonemes.
-  const SOUNDS = {
-    bag: [["b","buh"],["a","ah"],["g","guh"]],
-    apple: [["a","ah"],["pp","puh"],["le","luh"]],
-    book: [["b","buh"],["oo","oo"],["k","kuh"]],
-    crayon: [["c","kuh"],["r","ruh"],["ay","ay"],["on","on"]],
-    pen: [["p","puh"],["e","eh"],["n","nuh"]],
-    pencil: [["p","puh"],["e","eh"],["n","nuh"],["c","suh"],["i","ih"],["l","luh"]],
-    case: [["c","kuh"],["a","ay"],["se","suh"]],
-    rubber: [["r","ruh"],["u","uh"],["bb","buh"],["er","er"]],
-    ruler: [["r","ruh"],["u","oo"],["l","luh"],["er","er"]],
-    teacher: [["t","tuh"],["ea","ee"],["ch","chuh"],["er","er"]],
-    poster: [["p","puh"],["o","oh"],["s","suh"],["t","tuh"],["er","er"]],
-    board: [["b","buh"],["oar","or"],["d","duh"]],
-    chair: [["ch","chuh"],["air","air"]],
-    desk: [["d","duh"],["e","eh"],["s","suh"],["k","kuh"]],
-  };
-
-  V.map = word => {
-    const w = String(word || "").toLowerCase(), out = []; let pos = 0;
-    for (const tok of w.split(" ")) {
-      const start = w.indexOf(tok, pos), m = SOUNDS[tok];
-      if (!m || start < 0) return null;
-      let p = start;
-      for (const [g, s] of m) { if (w.substr(p, g.length) !== g) return null; out.push({ g, s, a: p, b: p + g.length - 1 }); p += g.length; }
-      if (p !== start + tok.length) return null;
-      pos = p;
+  // Project Read Word Mapper reference data: studio audio + exact millisecond character alignments
+  const PROJECT_READ = {
+  "bag": {
+    "audio": "/audio/bag.mp3",
+    "chars": [
+      {
+        "c": "b",
+        "s": 0.128,
+        "e": 0.255
+      },
+      {
+        "c": "a",
+        "s": 0.255,
+        "e": 0.453
+      },
+      {
+        "c": "g",
+        "s": 0.453,
+        "e": 0.58
+      }
+    ],
+    "blend": {
+      "s": 0.58,
+      "e": 1.115
     }
-    return out;
+  },
+  "book": {
+    "audio": "/audio/book.mp3",
+    "chars": [
+      {
+        "c": "b",
+        "s": 0.151,
+        "e": 0.244
+      },
+      {
+        "c": "o",
+        "s": 0.244,
+        "e": 0.325
+      },
+      {
+        "c": "o",
+        "s": 0.325,
+        "e": 0.395
+      },
+      {
+        "c": "k",
+        "s": 0.395,
+        "e": 0.522
+      }
+    ],
+    "blend": {
+      "s": 0.522,
+      "e": 1.068
+    }
+  },
+  "crayon": {
+    "audio": "/audio/crayon.mp3",
+    "chars": [
+      {
+        "c": "c",
+        "s": 0.186,
+        "e": 0.313
+      },
+      {
+        "c": "r",
+        "s": 0.313,
+        "e": 0.406
+      },
+      {
+        "c": "a",
+        "s": 0.406,
+        "e": 0.488
+      },
+      {
+        "c": "y",
+        "s": 0.488,
+        "e": 0.569
+      },
+      {
+        "c": "o",
+        "s": 0.569,
+        "e": 0.697
+      },
+      {
+        "c": "n",
+        "s": 0.697,
+        "e": 0.848
+      }
+    ],
+    "blend": {
+      "s": 0.848,
+      "e": 1.393
+    }
+  },
+  "pen": {
+    "audio": "/audio/pen.mp3",
+    "chars": [
+      {
+        "c": "p",
+        "s": 0.174,
+        "e": 0.255
+      },
+      {
+        "c": "e",
+        "s": 0.255,
+        "e": 0.395
+      },
+      {
+        "c": "n",
+        "s": 0.395,
+        "e": 0.522
+      }
+    ],
+    "blend": {
+      "s": 0.522,
+      "e": 1.115
+    }
+  },
+  "pencil": {
+    "audio": "/audio/pencil.mp3",
+    "chars": [
+      {
+        "c": "p",
+        "s": 0.139,
+        "e": 0.232
+      },
+      {
+        "c": "e",
+        "s": 0.232,
+        "e": 0.302
+      },
+      {
+        "c": "n",
+        "s": 0.302,
+        "e": 0.372
+      },
+      {
+        "c": "c",
+        "s": 0.372,
+        "e": 0.464
+      },
+      {
+        "c": "i",
+        "s": 0.464,
+        "e": 0.546
+      },
+      {
+        "c": "l",
+        "s": 0.546,
+        "e": 0.65
+      }
+    ],
+    "blend": {
+      "s": 0.65,
+      "e": 1.161
+    }
+  },
+  "case": {
+    "audio": "/audio/case.mp3",
+    "chars": [
+      {
+        "c": "c",
+        "s": 0.104,
+        "e": 0.232
+      },
+      {
+        "c": "a",
+        "s": 0.232,
+        "e": 0.43
+      },
+      {
+        "c": "s",
+        "s": 0.43,
+        "e": 0.522
+      },
+      {
+        "c": "e",
+        "s": 0.522,
+        "e": 0.72
+      }
+    ],
+    "blend": {
+      "s": 0.72,
+      "e": 1.115
+    }
+  },
+  "rubber": {
+    "audio": "/audio/rubber.mp3",
+    "chars": [
+      {
+        "c": "r",
+        "s": 0.209,
+        "e": 0.302
+      },
+      {
+        "c": "u",
+        "s": 0.302,
+        "e": 0.36
+      },
+      {
+        "c": "b",
+        "s": 0.36,
+        "e": 0.418
+      },
+      {
+        "c": "b",
+        "s": 0.418,
+        "e": 0.476
+      },
+      {
+        "c": "e",
+        "s": 0.476,
+        "e": 0.557
+      },
+      {
+        "c": "r",
+        "s": 0.557,
+        "e": 0.662
+      }
+    ],
+    "blend": {
+      "s": 0.662,
+      "e": 1.3
+    }
+  },
+  "ruler": {
+    "audio": "/audio/ruler.mp3",
+    "chars": [
+      {
+        "c": "r",
+        "s": 0.139,
+        "e": 0.232
+      },
+      {
+        "c": "u",
+        "s": 0.232,
+        "e": 0.325
+      },
+      {
+        "c": "l",
+        "s": 0.325,
+        "e": 0.418
+      },
+      {
+        "c": "e",
+        "s": 0.418,
+        "e": 0.476
+      },
+      {
+        "c": "r",
+        "s": 0.476,
+        "e": 0.557
+      }
+    ],
+    "blend": {
+      "s": 0.557,
+      "e": 1.022
+    }
+  },
+  "teacher": {
+    "audio": "/audio/teacher.mp3",
+    "chars": [
+      {
+        "c": "t",
+        "s": 0.139,
+        "e": 0.244
+      },
+      {
+        "c": "e",
+        "s": 0.244,
+        "e": 0.313
+      },
+      {
+        "c": "a",
+        "s": 0.313,
+        "e": 0.383
+      },
+      {
+        "c": "c",
+        "s": 0.383,
+        "e": 0.43
+      },
+      {
+        "c": "h",
+        "s": 0.43,
+        "e": 0.499
+      },
+      {
+        "c": "e",
+        "s": 0.499,
+        "e": 0.569
+      },
+      {
+        "c": "r",
+        "s": 0.569,
+        "e": 0.697
+      }
+    ],
+    "blend": {
+      "s": 0.697,
+      "e": 1.115
+    }
+  },
+  "poster": {
+    "audio": "/audio/poster.mp3",
+    "chars": [
+      {
+        "c": "p",
+        "s": 0.151,
+        "e": 0.279
+      },
+      {
+        "c": "o",
+        "s": 0.279,
+        "e": 0.43
+      },
+      {
+        "c": "s",
+        "s": 0.43,
+        "e": 0.522
+      },
+      {
+        "c": "t",
+        "s": 0.522,
+        "e": 0.615
+      },
+      {
+        "c": "e",
+        "s": 0.615,
+        "e": 0.697
+      },
+      {
+        "c": "r",
+        "s": 0.697,
+        "e": 0.801
+      }
+    ],
+    "blend": {
+      "s": 0.801,
+      "e": 1.393
+    }
+  },
+  "board": {
+    "audio": "/audio/board.mp3",
+    "chars": [
+      {
+        "c": "b",
+        "s": 0.174,
+        "e": 0.267
+      },
+      {
+        "c": "o",
+        "s": 0.267,
+        "e": 0.348
+      },
+      {
+        "c": "a",
+        "s": 0.348,
+        "e": 0.383
+      },
+      {
+        "c": "r",
+        "s": 0.383,
+        "e": 0.453
+      },
+      {
+        "c": "d",
+        "s": 0.453,
+        "e": 0.58
+      }
+    ],
+    "blend": {
+      "s": 0.58,
+      "e": 1.068
+    }
+  },
+  "chair": {
+    "audio": "/audio/chair.mp3",
+    "chars": [
+      {
+        "c": "c",
+        "s": 0.139,
+        "e": 0.244
+      },
+      {
+        "c": "h",
+        "s": 0.244,
+        "e": 0.325
+      },
+      {
+        "c": "a",
+        "s": 0.325,
+        "e": 0.406
+      },
+      {
+        "c": "i",
+        "s": 0.406,
+        "e": 0.488
+      },
+      {
+        "c": "r",
+        "s": 0.488,
+        "e": 0.592
+      }
+    ],
+    "blend": {
+      "s": 0.592,
+      "e": 1.022
+    }
+  },
+  "desk": {
+    "audio": "/audio/desk.mp3",
+    "chars": [
+      {
+        "c": "d",
+        "s": 0.151,
+        "e": 0.244
+      },
+      {
+        "c": "e",
+        "s": 0.244,
+        "e": 0.406
+      },
+      {
+        "c": "s",
+        "s": 0.406,
+        "e": 0.511
+      },
+      {
+        "c": "k",
+        "s": 0.511,
+        "e": 0.639
+      }
+    ],
+    "blend": {
+      "s": 0.639,
+      "e": 1.115
+    }
+  },
+  "apple": {
+    "audio": "/audio/apple.mp3",
+    "chars": [
+      {
+        "c": "a",
+        "s": 0.116,
+        "e": 0.244
+      },
+      {
+        "c": "p",
+        "s": 0.244,
+        "e": 0.337
+      },
+      {
+        "c": "p",
+        "s": 0.337,
+        "e": 0.43
+      },
+      {
+        "c": "l",
+        "s": 0.43,
+        "e": 0.511
+      },
+      {
+        "c": "e",
+        "s": 0.511,
+        "e": 0.639
+      }
+    ],
+    "blend": {
+      "s": 0.639,
+      "e": 1.022
+    }
+  }
+};
+
+  // Pre-load audio elements for zero-latency instant playback
+  const audioCache = {};
+  const getAudio = url => {
+    if (!audioCache[url]) {
+      const a = new Audio(url);
+      a.preload = "auto";
+      audioCache[url] = a;
+    }
+    return audioCache[url];
   };
+  // Prime all audio objects
+  Object.values(PROJECT_READ).forEach(m => { getAudio(m.audio); });
 
   V.lit = (word, gi, li) => {
-    if (gi === 999) return true; // All letters highlighted for whole word
-    if (gi < 0) return false;
-    const m = V.map(word);
-    if (!m) return undefined;
-    const g = m[gi];
-    return !!g && li >= g.a && li <= g.b;
+    if (gi === 999) return true; // All letters highlighted (whole word blend)
+    if (gi < 0 || gi == null) return false; // Nothing highlighted
+    if (Array.isArray(gi)) return gi.includes(li);
+    return gi === li; // Exact character index highlighted
   };
 
   V.sound = s => { if (s) speak(s, { cancel: true, rate: 0.88, pitch: 1.05 }); };
-  // Pronounce letter using its International Phonetic Alphabet (IPA) sound:
   V.letter = c => {
     const ch = String(c || "").toLowerCase().trim();
     if (!ch) return;
@@ -172,86 +639,220 @@
   };
   V.tap = w => { if (w) speak(w, { cancel: true, rate: 0.85 }); };
 
-  V.word = (o, onHighlight) => {
-    const w = o && (o.en || o); if (!w) return;
-    V.soundOut(w, onHighlight);
-  };
-
-  // Sound out each letter with zero delay between visual highlight and voice:
+  // Sound out each letter in perfect sync using Project Read Word Mapper:
   V.soundOut = (word, onHighlight) => {
-    const w = String(word || "").toLowerCase().trim();
+    const raw = String(word || "").toLowerCase().trim();
     const h = onHighlight || activeHighlightFn;
     V.stop();
     activeSoundOutId++;
     const id = activeSoundOutId;
 
-    const m = V.map(w);
-    if (!m || !m.length) {
+    if (!on) return;
+
+    // Special case: two-word phrase "pencil case"
+    if (raw === "pencil case") {
+      playPencilCase(id, h);
+      return;
+    }
+
+    const map = PROJECT_READ[raw];
+    if (map) {
+      playProjectReadWord(raw, map, id, h);
+      return;
+    }
+
+    // Fallback for any unknown word: pronounce whole word with speech synthesis
+    if (h) h(999);
+    speak(raw, {
+      cancel: true,
+      rate: 0.78,
+      onstart: () => { if (id === activeSoundOutId && h) h(999); },
+      onend: () => { if (id === activeSoundOutId && h) h(-1); }
+    });
+  };
+
+  function playProjectReadWord(word, map, id, h) {
+    const audio = getAudio(map.audio);
+    currentAudio = audio;
+    audio.pause();
+    audio.currentTime = 0;
+
+    let highlighted = -1;
+    const step = () => {
+      if (id !== activeSoundOutId || currentAudio !== audio) return;
+      const t = audio.currentTime;
+      let target = -1;
+
+      for (let i = 0; i < map.chars.length; i++) {
+        const c = map.chars[i];
+        if (t >= c.s && t < c.e) {
+          target = i;
+          break;
+        }
+      }
+
+      if (target === -1 && t >= map.blend.s && t <= map.blend.e + 0.15) {
+        target = 999; // Blend phase: whole word highlighted
+      }
+
+      if (target !== highlighted) {
+        highlighted = target;
+        if (h) h(target);
+      }
+
+      if (!audio.paused && !audio.ended && t <= map.blend.e + 0.25) {
+        currentAnim = requestAnimationFrame(step);
+      } else if (audio.ended || t > map.blend.e + 0.2) {
+        // Blending finished: hold highlight briefly, then speak full sentence
+        setTimeout(() => {
+          if (id !== activeSoundOutId) return;
+          speak("It's " + article(word) + " " + word + ".", {
+            rate: 0.82,
+            pitch: 1.0,
+            onstart: () => { if (id === activeSoundOutId && h) h(999); },
+            onend: () => { if (id === activeSoundOutId && h) h(-1); }
+          });
+        }, 220);
+      }
+    };
+
+    audio.play().then(() => {
+      if (id === activeSoundOutId) {
+        currentAnim = requestAnimationFrame(step);
+      }
+    }).catch(err => {
+      console.warn("Audio play failed, falling back to speech synthesis", err);
       if (h) h(999);
-      speak(w, {
-        cancel: true,
-        rate: 0.76,
-        onstart: () => { if (id === activeSoundOutId && h) h(999); },
+      speak(word, {
+        onend: () => { if (id === activeSoundOutId && h) h(-1); }
+      });
+    });
+  }
+
+  function playPencilCase(id, h) {
+    const pMap = PROJECT_READ["pencil"];
+    const cMap = PROJECT_READ["case"];
+    if (!pMap || !cMap) {
+      if (h) h(999);
+      speak("pencil case", {
         onend: () => { if (id === activeSoundOutId && h) h(-1); }
       });
       return;
     }
 
-    let idx = 0;
-    const playNext = () => {
-      if (id !== activeSoundOutId) return;
+    // Part 1: play "pencil" (indices 0..5)
+    const pAudio = getAudio(pMap.audio);
+    currentAudio = pAudio;
+    pAudio.pause();
+    pAudio.currentTime = 0;
 
-      if (idx >= m.length) {
-        // All IPA phonemes completed: highlight entire word and pronounce clearly
-        setTimeout(() => {
-          if (id !== activeSoundOutId) return;
-          if (h) h(999);
-          speak(w + ".", {
-            rate: 0.76,
-            pitch: 1.0,
-            onstart: () => { if (id === activeSoundOutId && h) h(999); },
-            onend: () => {
-              setTimeout(() => {
-                if (id !== activeSoundOutId) return;
-                speak("It's " + article(w) + " " + w + ".", {
-                  rate: 0.82,
-                  pitch: 1.0,
-                  onend: () => { if (id === activeSoundOutId && h) h(-1); }
-                });
-              }, 250);
-            }
-          });
-        }, 160);
-        return;
+    let highlighted = -1;
+    const pStep = () => {
+      if (id !== activeSoundOutId || currentAudio !== pAudio) return;
+      const t = pAudio.currentTime;
+      let target = -1;
+
+      for (let i = 0; i < pMap.chars.length; i++) {
+        const c = pMap.chars[i];
+        if (t >= c.s && t < c.e) {
+          target = i;
+          break;
+        }
       }
 
-      const item = m[idx];
-      const step = idx;
-      idx++;
+      if (target === -1 && t >= pMap.blend.s && t <= pMap.blend.e + 0.15) {
+        target = [0, 1, 2, 3, 4, 5]; // Highlight "pencil" during its blend
+      }
 
-      const lightUp = () => { if (id === activeSoundOutId && h) h(step); };
+      if (target !== highlighted) {
+        highlighted = target;
+        if (h) h(target);
+      }
 
-      let stepDone = false;
-      const advance = () => {
-        if (stepDone || id !== activeSoundOutId) return;
-        stepDone = true;
-        setTimeout(playNext, 200);
-      };
-
-      // Speak phoneme, triggering the visual highlight immediately upon voice start
-      speak(item.s, {
-        rate: 0.86,
-        pitch: 1.05,
-        onstart: lightUp,
-        onend: advance
-      });
-
-      // Fallback only if onstart has not fired after 300ms
-      setTimeout(lightUp, 300);
-      setTimeout(advance, 2500);
+      if (!pAudio.paused && !pAudio.ended && t <= pMap.blend.e + 0.25) {
+        currentAnim = requestAnimationFrame(pStep);
+      } else if (pAudio.ended || t > pMap.blend.e + 0.2) {
+        // Proceed to "case" after short pause
+        setTimeout(() => {
+          if (id !== activeSoundOutId) return;
+          playCasePart();
+        }, 180);
+      }
     };
 
-    playNext();
+    function playCasePart() {
+      const cAudio = getAudio(cMap.audio);
+      currentAudio = cAudio;
+      cAudio.pause();
+      cAudio.currentTime = 0;
+
+      let cHighlighted = -1;
+      const cStep = () => {
+        if (id !== activeSoundOutId || currentAudio !== cAudio) return;
+        const t = cAudio.currentTime;
+        let target = -1;
+
+        // "pencil " is 7 chars (0..6), so "case" starts at index 7
+        for (let i = 0; i < cMap.chars.length; i++) {
+          const c = cMap.chars[i];
+          if (t >= c.s && t < c.e) {
+            target = 7 + i;
+            break;
+          }
+        }
+
+        if (target === -1 && t >= cMap.blend.s && t <= cMap.blend.e + 0.15) {
+          target = [7, 8, 9, 10]; // Highlight "case" during its blend
+        }
+
+        if (target !== cHighlighted) {
+          cHighlighted = target;
+          if (h) h(target);
+        }
+
+        if (!cAudio.paused && !cAudio.ended && t <= cMap.blend.e + 0.25) {
+          currentAnim = requestAnimationFrame(cStep);
+        } else if (cAudio.ended || t > cMap.blend.e + 0.2) {
+          // Whole phrase completed
+          setTimeout(() => {
+            if (id !== activeSoundOutId) return;
+            speak("It's a pencil case.", {
+              rate: 0.82,
+              pitch: 1.0,
+              onstart: () => { if (id === activeSoundOutId && h) h(999); },
+              onend: () => { if (id === activeSoundOutId && h) h(-1); }
+            });
+          }, 220);
+        }
+      };
+
+      cAudio.play().then(() => {
+        if (id === activeSoundOutId) {
+          currentAnim = requestAnimationFrame(cStep);
+        }
+      }).catch(() => {
+        if (h) h(999);
+        speak("pencil case", {
+          onend: () => { if (id === activeSoundOutId && h) h(-1); }
+        });
+      });
+    }
+
+    pAudio.play().then(() => {
+      if (id === activeSoundOutId) {
+        currentAnim = requestAnimationFrame(pStep);
+      }
+    }).catch(() => {
+      if (h) h(999);
+      speak("pencil case", {
+        onend: () => { if (id === activeSoundOutId && h) h(-1); }
+      });
+    });
+  }
+
+  V.word = (o, onHighlight) => {
+    const w = o && (o.en || o); if (!w) return;
+    V.soundOut(w, onHighlight);
   };
 
   // Tap an individual letter in a vocabulary word:
@@ -262,20 +863,41 @@
     activeSoundOutId++;
     const id = activeSoundOutId;
 
-    const m = V.map(w);
-    let step = -1, sound = "";
-    if (m) {
-      for (let i = 0; i < m.length; i++) {
-        if (charIndex >= m[i].a && charIndex <= m[i].b) {
-          step = i;
-          sound = m[i].s;
-          break;
-        }
-      }
+    const map = PROJECT_READ[w];
+    if (map && map.chars[charIndex]) {
+      const ch = map.chars[charIndex];
+      const audio = getAudio(map.audio);
+      currentAudio = audio;
+      audio.pause();
+      audio.currentTime = ch.s;
+      if (h) h(charIndex);
+      audio.play().then(() => {
+        const checkEnd = () => {
+          if (id !== activeSoundOutId || currentAudio !== audio) return;
+          if (audio.currentTime >= ch.e || audio.paused) {
+            audio.pause();
+            setTimeout(() => {
+              if (id === activeSoundOutId && h) h(-1);
+            }, 300);
+          } else {
+            currentAnim = requestAnimationFrame(checkEnd);
+          }
+        };
+        currentAnim = requestAnimationFrame(checkEnd);
+      }).catch(() => {
+        // Fallback to speech synthesis
+        speak(V.ipaSound(ch.c), {
+          rate: 0.86,
+          pitch: 1.05,
+          onstart: () => { if (id === activeSoundOutId && h) h(charIndex); },
+          onend: () => { if (id === activeSoundOutId && h) h(-1); }
+        });
+      });
+      return;
     }
-    if (!sound) sound = V.ipaSound(w[charIndex] || "");
 
-    const lightUp = () => { if (id === activeSoundOutId && h) h(step >= 0 ? step : charIndex); };
+    const sound = V.ipaSound(w[charIndex] || "");
+    const lightUp = () => { if (id === activeSoundOutId && h) h(charIndex); };
     speak(sound, {
       cancel: true,
       rate: 0.86,
@@ -316,7 +938,7 @@
   };
 
   // Missing letter selection in Phonics activity:
-  // - Plays the selected letter's IPA sound with zero delay
+  // - Plays the selected letter's sound with zero delay
   // - If correct: completes the word, pronounces the word clearly, and ONLY advances after pronunciation completes
   // - If incorrect: plays the tapped letter sound and offers gentle encouragement to try again
   V.missingLetterSelect = (selectedLetter, word, isCorrect, onAdvance) => {
@@ -335,34 +957,74 @@
           if (id !== activeSoundOutId) return;
           setTimeout(() => {
             if (id !== activeSoundOutId) return;
-            speak(w + ".", {
-              rate: 0.76,
-              pitch: 1.0,
-              onend: () => {
-                if (id !== activeSoundOutId) return;
-                setTimeout(() => {
-                  if (id !== activeSoundOutId) return;
-                  speak("It's " + article(w) + " " + w + ".", {
-                    rate: 0.82,
-                    pitch: 1.0,
-                    onend: () => {
+            const map = PROJECT_READ[w];
+            if (map) {
+              const audio = getAudio(map.audio);
+              currentAudio = audio;
+              audio.pause();
+              audio.currentTime = map.blend.s; // Play whole word blend
+              audio.play().then(() => {
+                const checkDone = () => {
+                  if (id !== activeSoundOutId || currentAudio !== audio) return;
+                  if (audio.currentTime >= map.blend.e + 0.1 || audio.paused || audio.ended) {
+                    audio.pause();
+                    setTimeout(() => {
                       if (id !== activeSoundOutId) return;
-                      setTimeout(() => {
-                        if (id !== activeSoundOutId) return;
-                        onAdvance && onAdvance();
-                      }, 350);
-                    }
-                  });
-                }, 200);
-              }
-            });
+                      speak("It's " + article(w) + " " + w + ".", {
+                        rate: 0.82,
+                        pitch: 1.0,
+                        onend: () => {
+                          if (id !== activeSoundOutId) return;
+                          setTimeout(() => {
+                            if (id !== activeSoundOutId) return;
+                            onAdvance && onAdvance();
+                          }, 350);
+                        }
+                      });
+                    }, 200);
+                  } else {
+                    currentAnim = requestAnimationFrame(checkDone);
+                  }
+                };
+                currentAnim = requestAnimationFrame(checkDone);
+              }).catch(() => {
+                fallbackPronounce();
+              });
+            } else {
+              fallbackPronounce();
+            }
           }, 200);
         }
       });
+
+      function fallbackPronounce() {
+        speak(w + ".", {
+          rate: 0.76,
+          pitch: 1.0,
+          onend: () => {
+            if (id !== activeSoundOutId) return;
+            setTimeout(() => {
+              if (id !== activeSoundOutId) return;
+              speak("It's " + article(w) + " " + w + ".", {
+                rate: 0.82,
+                pitch: 1.0,
+                onend: () => {
+                  if (id !== activeSoundOutId) return;
+                  setTimeout(() => {
+                    if (id !== activeSoundOutId) return;
+                    onAdvance && onAdvance();
+                  }, 350);
+                }
+              });
+            }, 200);
+          }
+        });
+      }
+
       // Safety timeout to ensure activity progresses even if audio subsystem hangs
       setTimeout(() => {
         if (id === activeSoundOutId) onAdvance && onAdvance();
-      }, 5500);
+      }, 6500);
     } else {
       speak(letterSound, {
         cancel: true,
