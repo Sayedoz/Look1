@@ -118,11 +118,18 @@
     if (h) h(999);
     speak(w + '.', {
       cancel: true,
-      rate: 0.82,
+      rate: 0.74,
+      pitch: 1.0,
       onstart: () => { if (h) h(999); },
       onend: () => {
-        if (h) h(-1);
-        speak(`It's ${article(w)} ${w}.`);
+        setTimeout(() => {
+          speak(`It's ${article(w)} ${w}.`, {
+            rate: 0.80,
+            pitch: 1.0,
+            onstart: () => { if (h) h(999); },
+            onend: () => { if (h) h(-1); }
+          });
+        }, 350);
       }
     });
   };
