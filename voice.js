@@ -87,12 +87,12 @@
     return out;
   };
   V.lit = (word, gi, li) => { const m = V.map(word); if (!m) return undefined; const g = m[gi]; return !!g && li >= g.a && li <= g.b; };
-  V.sound = s => { if (s) speak(s, { cancel: true, rate: 0.7, pitch: 1 }); };
-  V.letter = c => { if (c && c.trim()) speak(c.toUpperCase(), { rate: 0.8 }); };
-  V.tap = w => { if (w) speak(w, { cancel: true, rate: 0.8 }); };
+  V.sound = s => { if (s) speak(s, { cancel: true, rate: 0.92, pitch: 1.05 }); };
+  V.letter = c => { if (c && c.trim()) speak(c.toUpperCase(), { rate: 0.85 }); };
+  V.tap = w => { if (w) speak(w, { cancel: true, rate: 0.85 }); };
   V.word = o => {
     const w = o && o.en; if (!w) return;
-    speak(w + '.', { cancel: true, rate: 0.78 });
+    speak(w + '.', { cancel: true, rate: 0.82 });
     speak(`It's ${article(w)} ${w}.`);
   };
   V.ar = t => speak(t, { cancel: true, lang: 'ar' });
@@ -111,7 +111,32 @@
     speak(fill(t), { cancel: true });
   };
 
-  // ---- "Say it!" : listen to the child and respond like a teacher ----
+  // ---- "Say it!" : listen to the child and respond like an encouraging teacher ----
+  const ALIASES = {
+    board: ['bored', 'bird', 'border', 'broad', 'borde', 'boar'],
+    pen: ['pin', 'pan', 'ben', 'ten', 'pain', 'penny', 'peen', '10'],
+    bag: ['back', 'beg', 'bad', 'bug', 'big', 'pack', 'bags'],
+    book: ['look', 'cook', 'hook', 'buck', 'books', 'took'],
+    crayon: ['crown', 'crane', 'crying', 'crayons', 'cran', 'krayon'],
+    rubber: ['robber', 'brother', 'rubbers', 'rober', 'rover', 'eraser'],
+    ruler: ['roller', 'rulers', 'rule', 'rooter', 'looter'],
+    pencil: ['pencils', 'pensil', 'cancel', 'pence'],
+    'pencil case': ['pencilcase', 'pencil space', 'pencils case', 'pencil', 'case', 'pencil-case'],
+    teacher: ['teachers', 't-shirt', 'teach her', 'feature'],
+    poster: ['posters', 'pasta', 'toaster', 'post'],
+    chair: ['cheer', 'share', 'chairs', 'cher', 'char'],
+    desk: ['disc', 'disk', 'dusk', 'deck', 'desks', "that's", 'dex'],
+    apple: ['apples', 'aple', 'opal'],
+  };
+
+  const stripFraming = s =>
+    String(s || '')
+      .toLowerCase()
+      .replace(/[^a-z0-9' ]/g, ' ')
+      .replace(/\b(it's|its|it|is|this|that|that's|whats|what|a|an|the|my|say|said|see|look|oh)\b/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+
   const lev = (a, b) => {
     const d = Array.from({ length: a.length + 1 }, (_, i) => [i, ...Array(b.length).fill(0)]);
     for (let j = 1; j <= b.length; j++) d[0][j] = j;
@@ -119,10 +144,54 @@
       d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
     return d[a.length][b.length];
   };
-  const isMatch = (alts, t) => alts.some(a => {
-    const flat = a.replace(/ /g, ''), tf = t.replace(/ /g, '');
-    return a === t || flat === tf || a.split(' ').includes(t) || (t.length >= 4 && a.split(' ').some(w => lev(w, t) <= 1));
-  });
+
+  const isWordClose = (w, target) => {
+    if (!w || !target) return false;
+    if (w === target) return true;
+    const d = lev(w, target);
+    if (target.length <= 3) return d <= 1;
+    if (target.length <= 5) return d <= 1;
+    return d <= 2;
+  };
+
+  const isMatch = (alts, target) => {
+    const t = String(target || '').toLowerCase().trim();
+    const tClean = stripFraming(t) || t;
+    const aliases = [t, tClean, ...(ALIASES[t] || []), ...(ALIASES[tClean] || [])];
+
+    return alts.some(raw => {
+      const a = String(raw || '').toLowerCase().trim();
+      const aClean = stripFraming(a);
+      const aFlat = a.replace(/[^a-z0-9]/g, '');
+      const tFlat = t.replace(/[^a-z0-9]/g, '');
+
+      if (a === t || aFlat === tFlat || aClean === tClean) return true;
+      for (const al of aliases) {
+        if (a === al || aClean === al || aFlat === al.replace(/[^a-z0-9]/g, '')) return true;
+      }
+
+      const words = aClean ? aClean.split(' ') : a.split(' ');
+      if (words.includes(t) || words.includes(tClean)) return true;
+      for (const al of aliases) {
+        if (words.includes(al)) return true;
+      }
+
+      const tTokens = t.split(' ').filter(Boolean);
+      if (tTokens.length > 1) {
+        if (tTokens.every(tk => words.some(w => isWordClose(w, tk)))) return true;
+        if (words.some(w => isWordClose(w, tTokens[0]))) return true;
+      }
+
+      for (const w of words) {
+        if (isWordClose(w, tClean) || isWordClose(w, t)) return true;
+        for (const al of aliases) {
+          if (isWordClose(w, al)) return true;
+        }
+      }
+
+      return false;
+    });
+  };
 
   V.listen = (target, cb) => {
     const t = String(target || '').toLowerCase();
