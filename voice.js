@@ -32,6 +32,9 @@
   const nm = () => V.name || '';
   const fill = s => s.replace(/\{n\}/g, nm()).replace(/\s+([,!.])/g, '$1').replace(/,\s*$/, '').trim();
 
+  let activeSoundOutId = 0;
+  let activeHighlightFn = null;
+
   function speak(text, o = {}) {
     if (!text || !synth || !on) { o.onend && o.onend(); return; }
     try {
@@ -42,6 +45,7 @@
       if (v) { u.voice = v; u.lang = v.lang; } else u.lang = ar ? 'ar-SA' : 'en-US';
       u.rate = o.rate ?? (ar ? 0.85 : 0.88);
       u.pitch = o.pitch ?? 1;
+      if (o.onstart) u.onstart = o.onstart;
       if (o.onend) {
         let done = false;
         const f = () => { if (!done) { done = true; o.onend(); } };
@@ -54,15 +58,25 @@
 
   const article = w => (/^[aeiou]/i.test(w) ? 'an' : 'a');
 
-  V.stop = () => { try { synth && synth.cancel(); } catch {} };
+  V.registerHighlight = fn => {
+    activeHighlightFn = fn;
+  };
+
+  V.stop = () => {
+    activeSoundOutId++;
+    if (activeHighlightFn) {
+      try { activeHighlightFn(-1); } catch {}
+    }
+    try { synth && synth.cancel(); } catch {}
+  };
   V.say = t => speak(t, { cancel: true });
   V.queue = (t, rate) => speak(t, { rate });
 
   // Word -> sounds (grapheme, spoken sound). Respelled so browser voices say sounds, not letter names.
   const SOUNDS = {
     bag: [['b','buh'],['a','ah'],['g','guh']],
-    book: [['b','buh'],['oo','uh'],['k','kuh']],
-    crayon: [['c','kuh'],['r','ruh'],['ay','ay'],['o','uh'],['n','nuh']],
+    book: [['b','buh'],['oo','oo'],['k','kuh']],
+    crayon: [['c','kuh'],['r','ruh'],['ay','ay'],['on','on']],
     pen: [['p','puh'],['e','eh'],['n','nuh']],
     pencil: [['p','puh'],['e','eh'],['n','nuh'],['c','suh'],['i','ih'],['l','luh']],
     case: [['c','kuh'],['a','ay'],['se','suh']],
@@ -86,15 +100,96 @@
     }
     return out;
   };
-  V.lit = (word, gi, li) => { const m = V.map(word); if (!m) return undefined; const g = m[gi]; return !!g && li >= g.a && li <= g.b; };
+  V.lit = (word, gi, li) => {
+    if (gi === 999) return true; // All letters highlighted for whole word
+    if (gi < 0) return false;
+    const m = V.map(word);
+    if (!m) return undefined;
+    const g = m[gi];
+    return !!g && li >= g.a && li <= g.b;
+  };
   V.sound = s => { if (s) speak(s, { cancel: true, rate: 0.92, pitch: 1.05 }); };
   V.letter = c => { if (c && c.trim()) speak(c.toUpperCase(), { rate: 0.85 }); };
   V.tap = w => { if (w) speak(w, { cancel: true, rate: 0.85 }); };
-  V.word = o => {
-    const w = o && o.en; if (!w) return;
-    speak(w + '.', { cancel: true, rate: 0.82 });
-    speak(`It's ${article(w)} ${w}.`);
+  V.word = (o, onHighlight) => {
+    const w = o && (o.en || o); if (!w) return;
+    const h = onHighlight || activeHighlightFn;
+    V.stop();
+    if (h) h(999);
+    speak(w + '.', {
+      cancel: true,
+      rate: 0.82,
+      onstart: () => { if (h) h(999); },
+      onend: () => {
+        if (h) h(-1);
+        speak(`It's ${article(w)} ${w}.`);
+      }
+    });
   };
+
+  V.soundOut = (word, onHighlight) => {
+    const w = String(word || '').toLowerCase().trim();
+    const h = onHighlight || activeHighlightFn;
+    V.stop();
+    activeSoundOutId++;
+    const id = activeSoundOutId;
+
+    const m = V.map(w);
+    if (!m || !m.length) {
+      if (h) h(999);
+      speak(w, {
+        cancel: true,
+        rate: 0.82,
+        onstart: () => { if (id === activeSoundOutId && h) h(999); },
+        onend: () => { if (id === activeSoundOutId && h) h(-1); }
+      });
+      return;
+    }
+
+    let idx = 0;
+    const playNext = () => {
+      if (id !== activeSoundOutId) return;
+
+      if (idx >= m.length) {
+        setTimeout(() => {
+          if (id !== activeSoundOutId) return;
+          if (h) h(999);
+          speak(w, {
+            rate: 0.82,
+            pitch: 1.02,
+            onstart: () => { if (id === activeSoundOutId && h) h(999); },
+            onend: () => { if (id === activeSoundOutId && h) h(-1); }
+          });
+        }, 120);
+        return;
+      }
+
+      const item = m[idx];
+      const step = idx;
+      idx++;
+
+      let stepDone = false;
+      const next = () => {
+        if (stepDone || id !== activeSoundOutId) return;
+        stepDone = true;
+        setTimeout(playNext, 70);
+      };
+
+      speak(item.s, {
+        rate: 0.95,
+        pitch: 1.08,
+        onstart: () => {
+          if (id === activeSoundOutId && h) h(step);
+        },
+        onend: next
+      });
+
+      setTimeout(next, Math.max(500, item.s.length * 150));
+    };
+
+    playNext();
+  };
+
   V.ar = t => speak(t, { cancel: true, lang: 'ar' });
   V.hasArabic = () => !!best('ar');
   V.good = () => speak(fill(pickOne(['Great job, {n}!', 'Yes! Well done!', 'Super, {n}!', "That's right!", 'Awesome!', 'Fantastic, {n}!', 'Yes! You got it!'])));
