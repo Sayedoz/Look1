@@ -174,25 +174,7 @@
 
   V.word = (o, onHighlight) => {
     const w = o && (o.en || o); if (!w) return;
-    const h = onHighlight || activeHighlightFn;
-    V.stop();
-    if (h) h(999);
-    speak(w + ".", {
-      cancel: true,
-      rate: 0.76,
-      pitch: 1.0,
-      onstart: () => { if (h) h(999); },
-      onend: () => {
-        setTimeout(() => {
-          speak("It's " + article(w) + " " + w + ".", {
-            rate: 0.80,
-            pitch: 1.0,
-            onstart: () => { if (h) h(999); },
-            onend: () => { if (h) h(-1); }
-          });
-        }, 350);
-      }
-    });
+    V.soundOut(w, onHighlight);
   };
 
   // Sound out each letter with zero delay between visual highlight and voice:
@@ -264,9 +246,9 @@
         onend: advance
       });
 
-      // Fallback in case browser onstart event is delayed
-      setTimeout(lightUp, 35);
-      setTimeout(advance, 2200);
+      // Fallback only if onstart has not fired after 300ms
+      setTimeout(lightUp, 300);
+      setTimeout(advance, 2500);
     };
 
     playNext();
